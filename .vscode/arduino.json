@@ -1,6 +1,6 @@
 {
     "board": "arduino:avr:uno",
-    "sketch": "TestStand\\TestStand.ino",
+    "sketch": "WirelessTesting\\Transmitter.ino",
     "port": "COM5",
     "output": "./build"
 }

@@ -43,15 +43,15 @@ void loop()
 
     if (loadcell.wait_ready_timeout(1000)) 
     {
-    long reading = loadcell.get_units(10);
-    //Serial.print("HX711 reading with value of ");
-    Serial.print(scale_val);
-    Serial.print("\t");
-    Serial.println((double) reading / 1000.0);
+        long reading = loadcell.get_units(10);
+        //Serial.print("HX711 reading with value of ");
+        Serial.print(scale_val);
+        Serial.print("\t");
+        Serial.println((double) reading / 1000.0);
     }
     else 
     {
-    Serial.println("HX711 not found.");
+        Serial.println("HX711 not found.");
     }
 
     last_pot = analogRead(POT_PIN);
@@ -98,15 +98,14 @@ void tare_scale()
             // if last check was a valid zero, increment
             if(last_zero)
             {
-            zero_count++;
-            Serial.print("Zero count is now: ");
-            Serial.println(zero_count);
+                zero_count++;
+                Serial.print("Zero count is now: ");
+                Serial.println(zero_count);
             }
             else // else this is the first zero in sequence
             {
-            zero_count = 1;
-            Serial.println("First Zero!");
-
+                zero_count = 1;
+                Serial.println("First Zero!");
             }
             last_zero = 1;
         }
