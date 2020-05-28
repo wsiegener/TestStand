@@ -1,16 +1,30 @@
+#include <FaBoLCD_PCF8574.h>
+
+//#include <LiquidCrystal_I2C.h>
+
 /**
  * 
  */
 
 #include <Wire.h>
+//#include <LiquidCrystal_I2C.h>
 #include "HX711.h"
+#include <LiquidCrystal.h>
 
 HX711 loadcell;
+//LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x20 for a 16 chars and 2 line display
+//LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
+
+//FaBoLCD_PCF8574 lcd;
+
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 8;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
 
 const int POT_PIN = 0;
 const int TARE_PIN= 2;
-const int LOADCELL_DOUT_PIN = 3;
-const int LOADCELL_SCK_PIN= 4;
+const int LOADCELL_DOUT_PIN = 6;
+const int LOADCELL_SCK_PIN= 7;
 
 const int ZERO_POINT= 200;
 
@@ -24,11 +38,17 @@ void tare_scale();
 void setup()
 {
     Serial.begin(115200);
-    Serial.println("Initializing the scale");
+
+    //lcd.init();                      // initialize the lcd
+    //lcd.backlight();
+    lcd.begin(16,2);
+    //Serial.println("Initializing the scale");
+
+    lcd.print("Hello");
 
     loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
-    Serial.println("Taring Scale");
+    //Serial.println("Taring Scale");
     loadcell.set_scale(scale_val);
     loadcell.tare();
 
@@ -38,16 +58,24 @@ void setup()
 
 void loop() 
 {
+  
+    lcd.setCursor(0,0);
+    lcd.print("Force in pounds:"); 
+
     scale_val = map(analogRead(POT_PIN), 0, 1023, 30000, 45000) / 1000.0;
     loadcell.set_scale(scale_val);
 
     if (loadcell.wait_ready_timeout(1000)) 
     {
-        long reading = loadcell.get_units(10);
+        long reading = loadcell.get_units(1);
         //Serial.print("HX711 reading with value of ");
         Serial.print(scale_val);
         Serial.print("\t");
-        Serial.println((double) reading / 1000.0);
+        Serial.println((double) reading / 1.0);
+
+        lcd.setCursor(0,1);
+        lcd.print(reading / 1000.0);
+    
     }
     else 
     {
@@ -56,7 +84,7 @@ void loop()
 
     last_pot = analogRead(POT_PIN);
 
-    delay(25);
+    delay(5);
 }
 
 void tare_scale()
