@@ -1,95 +1,128 @@
-#include <FaBoLCD_PCF8574.h>
-
-//#include <LiquidCrystal_I2C.h>
-
 /**
  * 
  */
 
 #include <Wire.h>
-//#include <LiquidCrystal_I2C.h>
+#include <LiquidCrystal_I2C.h>
 #include "HX711.h"
-#include <LiquidCrystal.h>
 
 HX711 loadcell;
-//LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x20 for a 16 chars and 2 line display
-//LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
+LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
-//FaBoLCD_PCF8574 lcd;
-
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 8;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
-
-
-const int POT_PIN = 0;
-const int TARE_PIN= 2;
-const int LOADCELL_DOUT_PIN = 6;
-const int LOADCELL_SCK_PIN= 7;
+const int POT_PIN = 4;
+const int TARE_PIN= 0;
+const int LOADCELL_DOUT_PIN = 16;
+const int LOADCELL_SCK_PIN= 17;
 
 const int ZERO_POINT= 200;
 
-int TARE_MODE = 0;
+/**
+ * STATES:
+ *  0 - update values as normal
+ *  1 - tare mode
+ *  2 - update, record, and transmit values 
+ *  3 - idle?
+ */
+int STATE = 0;
 
-double scale_val = 30;
+int TARE_DONE = 0;
+
+double scale_val = 79.28;
 int last_pot = 0;
-
-void tare_scale();
 
 void setup()
 {
     Serial.begin(115200);
-
-    //lcd.init();                      // initialize the lcd
-    //lcd.backlight();
-    lcd.begin(16,2);
-    //Serial.println("Initializing the scale");
-
-    lcd.print("Hello");
+    
+    lcd.init();                      // initialize the lcd 
+    lcd.backlight();
 
     loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
-    //Serial.println("Taring Scale");
+    Serial.println("After load cell begin");
+
+    Serial.println("Taring Scale");
     loadcell.set_scale(scale_val);
     loadcell.tare();
 
+    tare_scale();
+    
     attachInterrupt(digitalPinToInterrupt(TARE_PIN), toggleMode, RISING);
-
 }
 
 void loop() 
 {
-  
-    lcd.setCursor(0,0);
-    lcd.print("Force in pounds:"); 
+    switch(STATE)
+    {
+      case 0:
+      {
+        if(TARE_DONE == 0) // state needs to be changed
+        {
+          STATE = 1;
+        }
+        else
+        {
+          update_reading();
+        }
+        break;
+      }
+      case 1:
+      {
+        if(TARE_DONE == 0) // if call for tare
+        {
+          tare_scale();
+        }
+        else if(TARE_DONE == 2)
+        {
+          // TARE RUNNING
+        }
+        else if(TARE_DONE == 1)
+        {
+          STATE = 0;
+        }
+        break;
+      }
+      default:
+      {
+        break;
+      }
+    }
 
-    scale_val = map(analogRead(POT_PIN), 0, 1023, 30000, 45000) / 1000.0;
+    delay(5);
+}
+
+void update_reading()
+{
+    lcd.setCursor(0,0);
+    lcd.print("Force in kgs:"); 
+
+    //scale_val = map(analogRead(POT_PIN), 0, 4095, 79000, 81000) / 1000.0;
     loadcell.set_scale(scale_val);
 
     if (loadcell.wait_ready_timeout(1000)) 
     {
         long reading = loadcell.get_units(1);
         //Serial.print("HX711 reading with value of ");
-        Serial.print(scale_val);
-        Serial.print("\t");
+        //Serial.print(scale_val);
+        //Serial.print("\t");
         Serial.println((double) reading / 1.0);
 
         lcd.setCursor(0,1);
         lcd.print(reading / 1000.0);
-    
     }
     else 
     {
         Serial.println("HX711 not found.");
     }
-
+    
     last_pot = analogRead(POT_PIN);
-
-    delay(5);
 }
 
 void tare_scale()
 {
     Serial.println("Beginning Tare Process");
+    
+    TARE_DONE = 2;
 
     int value = 1000;
     int zero_trial = 1;
@@ -98,12 +131,12 @@ void tare_scale()
 
     interrupts();
 
-    while(TARE_MODE)
+    while(TARE_DONE == 2)
     {
         if(zero_trial > 50)
         {
             Serial.println("Tare process timeout, zero not found.");
-            TARE_MODE = 0;
+            TARE_DONE = 1;
             break;
         }
 
@@ -146,7 +179,7 @@ void tare_scale()
         if(zero_count >= 3)
         {
             Serial.println("Taring successful!");
-            TARE_MODE = 0;
+            TARE_DONE = 1;
             break;
         }
 
@@ -159,28 +192,28 @@ void tare_scale()
 }
 
 void toggleMode()
-{
+{  
     // disable interrupts for debounce
     noInterrupts();
 
-    delay(10);
+    delay(20);
 
     if(digitalRead(TARE_PIN))
-    {
-        if(TARE_MODE)
+    {        
+        if(STATE == 1) // if we are in tare mode, we want to cancel that
         {
             Serial.println("Cancelling Tare Mode.");
-            TARE_MODE = 0;
-
+            TARE_DONE = 1;
+            
             interrupts();
         }
-        else
+        else if(STATE == 0)
         {
-            Serial.println("Setting to Tare Mode.");
-            TARE_MODE = 1;
-            tare_scale();
+            Serial.println("Setting to Tare Mode.");            
+            TARE_DONE = 0;
         }
-    }
+    }    
 }
+
 
 // end file
