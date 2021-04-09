@@ -6,8 +6,53 @@
 #include <LiquidCrystal_I2C.h>
 #include "HX711.h"
 
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <WebSocketsServer.h>
+
+WebSocketsServer webSocket = WebSocketsServer(80);
+
+bool conn_ = false;
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) 
+{
+    switch(type) 
+    {
+        case WStype_DISCONNECTED:
+            Serial.printf("[%u] Disconnected!\n", num);
+            break;
+        case WStype_CONNECTED:
+            {
+                IPAddress ip = webSocket.remoteIP(num);
+                Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+
+                webSocket.sendTXT(num, "Connected");
+
+                conn_ = true;
+            }
+            break;
+        case WStype_TEXT:
+            Serial.printf("[%u] get Text: %s\n", num, payload);
+
+            // send message to client
+            webSocket.sendTXT(num, "message here");
+
+            // send data to all connected clients
+            // webSocket.broadcastTXT("message here");
+            break;
+        case WStype_BIN:
+        case WStype_ERROR:      
+        case WStype_FRAGMENT_TEXT_START:
+        case WStype_FRAGMENT_BIN_START:
+        case WStype_FRAGMENT:
+        case WStype_FRAGMENT_FIN:
+      break;
+    }
+}
+
 HX711 loadcell;
-LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+//LiquidCrystal_I2C lcd(0x27,16,2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 const int POT_PIN = 4;
 const int TARE_PIN= 0;
@@ -33,25 +78,66 @@ int last_pot = 0;
 void setup()
 {
     Serial.begin(115200);
+
+    pinMode(12, OUTPUT);
+    pinMode(14, OUTPUT);
+
+    digitalWrite(12, LOW);
     
-    lcd.init();                      // initialize the lcd 
-    lcd.backlight();
+    //lcd.init();                      // initialize the lcd 
+    //lcd.backlight();
+
+    WiFi.begin("NETWORK", "PASSWORD");
+
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+        delay(500);
+        Serial.print(".");
+    }
+
+    Serial.println("Connected!");
+    digitalWrite(12, HIGH);
+
+
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent);
 
     loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
     Serial.println("After load cell begin");
 
     Serial.println("Taring Scale");
+
+    update_reading();
+    
     loadcell.set_scale(scale_val);
+
+    Serial.println("Scale is set");
+
     loadcell.tare();
+    
+    Serial.println("Tared");
 
     tare_scale();
     
-    attachInterrupt(digitalPinToInterrupt(TARE_PIN), toggleMode, RISING);
+    attachInterrupt(digitalPinToInterrupt(TARE_PIN), toggleMode, RISING);   
+
 }
+
+
+bool status_ = false;
 
 void loop() 
 {
+    if(!status_)
+    {
+        if(conn_)
+        {
+            digitalWrite(14, HIGH);
+            status_ = true;
+        }
+    }
+    webSocket.loop();
     switch(STATE)
     {
       case 0:
@@ -91,13 +177,19 @@ void loop()
     delay(5);
 }
 
+float value = 0;
+float t_ = 0;
+String msg = "";
+
 void update_reading()
 {
-    lcd.setCursor(0,0);
-    lcd.print("Force in kgs:"); 
+
+
+  
+    //lcd.setCursor(0,0);
+    //lcd.print("Force in kgs:"); 
 
     //scale_val = map(analogRead(POT_PIN), 0, 4095, 79000, 81000) / 1000.0;
-    loadcell.set_scale(scale_val);
 
     if (loadcell.wait_ready_timeout(1000)) 
     {
@@ -105,10 +197,19 @@ void update_reading()
         //Serial.print("HX711 reading with value of ");
         //Serial.print(scale_val);
         //Serial.print("\t");
-        Serial.println((double) reading / 1.0);
 
-        lcd.setCursor(0,1);
-        lcd.print(reading / 1000.0);
+        t_ = millis();
+        value = reading;
+        
+        msg = String(t_) + ": " + String(value);
+        webSocket.broadcastTXT(msg);
+
+        
+        Serial.println((double) reading / 1.0);
+        
+
+        //lcd.setCursor(0,1);
+        //lcd.print(reading / 1000.0);
     }
     else 
     {
@@ -120,7 +221,7 @@ void update_reading()
 
 void tare_scale()
 {
-    Serial.println("Beginning Tare Process");
+    //Serial.println("Beginning Tare Process");
     
     TARE_DONE = 2;
 
@@ -135,7 +236,7 @@ void tare_scale()
     {
         if(zero_trial > 50)
         {
-            Serial.println("Tare process timeout, zero not found.");
+            //Serial.println("Tare process timeout, zero not found.");
             TARE_DONE = 1;
             break;
         }
@@ -144,6 +245,7 @@ void tare_scale()
         loadcell.tare();
         value = loadcell.get_value(5 + zero_trial);
 
+        
         Serial.print("zero_trial: ");
         Serial.print(zero_trial);
         Serial.print("\tRaw: ");
@@ -152,6 +254,9 @@ void tare_scale()
         Serial.print((double)value / (1000.0 * scale_val));
         Serial.print("\tZero Count: ");
         Serial.println(zero_count);
+        
+          
+         
 
         // if value is in zero range
         if(abs(value) < ZERO_POINT)
@@ -160,13 +265,13 @@ void tare_scale()
             if(last_zero)
             {
                 zero_count++;
-                Serial.print("Zero count is now: ");
-                Serial.println(zero_count);
+                //Serial.print("Zero count is now: ");
+                //Serial.println(zero_count);
             }
             else // else this is the first zero in sequence
             {
                 zero_count = 1;
-                Serial.println("First Zero!");
+                //Serial.println("First Zero!");
             }
             last_zero = 1;
         }
@@ -178,7 +283,7 @@ void tare_scale()
 
         if(zero_count >= 3)
         {
-            Serial.println("Taring successful!");
+            //Serial.println("Taring successful!");
             TARE_DONE = 1;
             break;
         }
@@ -188,7 +293,7 @@ void tare_scale()
         delay(10);
     }
 
-    Serial.println("");
+    //Serial.println("");
 }
 
 void toggleMode()
